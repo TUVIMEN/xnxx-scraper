@@ -22,22 +22,22 @@ get_page() {
     {
     echo "$1" #link
     echo "$(jq -r '.dyn | "\(.id)\n\(.pagefilter)\n\(.vmdata.pub_comments)\n\(.video_title)"' <<< "$jn")" #id #pagefilter #comment_count $title
-    _tmp1="$(hgrep 'div +class="clear-infobar"; a +href +class="gold-plate" @p"%(href)a\n"' <<< "$t")"
+    _tmp1="$(hgrep 'div +class="clear-infobar"; a +href +class="gold-plate" | "%(href)a\n"' <<< "$t")"
     echo "${_tmp1##*/}" #goldplate
-    jn="$(hgrep 'script +type="application/ld+json" @p"%i\n"' <<< "$t")"
+    jn="$(hgrep 'script +type="application/ld+json" | "%i\n"' <<< "$t")"
     echo "$(jq -r '"\(.uploadDate)\n\(.duration)"' <<< "$jn")" #date #duration
     echo "$(sed -n '/^[[:space:]]*html5player.setThumbUrl169(/{s/^.*('\''//; s/'\''.*$//;p;q}' <<< "$t")" #thumbnail
     echo "$(sed -n '/^[[:space:]]*html5player.setThumbSlideBig(/{s/^.*('\''//; s/'\''.*$//;p;q}' <<< "$t")" #mozaique
-    _tmp1="$(hgrep 'span +class="metadata" @p"%i\n"' <<< "$t")"
+    _tmp1="$(hgrep 'span +class="metadata" | "%i\n"' <<< "$t")"
     echo "$(sed -n '/[1-9][0-9]*p[^-]*-[^1-9][1-9][0-9,]*/{s/^- //; s/.*- //; s/ .*//; s/,//g;p}' <<< "$_tmp1")" #views
     echo "$(grep -o '[1-9][0-9]*p' <<< "$_tmp1")" #quality
-    _tmp1="$(hgrep 'span +class="rating-box value" @p"%i\n"' <<< "$t")"
+    _tmp1="$(hgrep 'span +class="rating-box value" | "%i\n"' <<< "$t")"
     echo "${_tmp1%\%}" #rating
-    echo "$(hgrep 'a +class="vote-action-good .*"; span +class="value" @p"%i\n"' <<< "$t" | tr -d ',')" #likes
-    echo "$(hgrep 'a +class="vote-action-bad .*"; span +class="value" @p"%i\n"' <<< "$t")" #dlikes
-    echo "$(hgrep 'p +class="metadata-row video-description" @p"%i\n"' <<< "$t" | sed ':x; s/^ *//; /^$/d; $!{N; s/\n/ /; bx}')" #desc
-    echo "$(hgrep 'div +class="metadata-row video-tags"; a +href .is-keyword @p"%i\n"' <<< "$t" | sed ':x; $!{N; s/\n/,/; bx}')" #tags
-    echo "$(hgrep 'div +class="metadata-row video-tags"; a +href .is-pornstar @p"%i\n"' <<< "$t" | sed ':x; $!{N; s/\n/,/; bx}')" #stars
+    echo "$(hgrep 'a +class="vote-action-good .*"; span +class="value" | "%i\n"' <<< "$t" | tr -d ',')" #likes
+    echo "$(hgrep 'a +class="vote-action-bad .*"; span +class="value" | "%i\n"' <<< "$t")" #dlikes
+    echo "$(hgrep 'p +class="metadata-row video-description" | "%i\n"' <<< "$t" | sed ':x; s/^ *//; /^$/d; $!{N; s/\n/ /; bx}')" #desc
+    echo "$(hgrep 'div +class="metadata-row video-tags"; a +href .is-keyword | "%i\n"' <<< "$t" | sed ':x; $!{N; s/\n/,/; bx}')" #tags
+    echo "$(hgrep 'div +class="metadata-row video-tags"; a +href .is-pornstar | "%i\n"' <<< "$t" | sed ':x; $!{N; s/\n/,/; bx}')" #stars
     } | jq -RnMc '
         input as $link |
         input as $id |
