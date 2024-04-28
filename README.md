@@ -1,10 +1,10 @@
 # xnxx-scraper
 
-A bash script for archiving xnxx videos metadata in json.
+A bash script for scraping xnxx videos metadata in json.
 
 ## Requirements
 
- - [hgrep](https://github.com/TUVIMEN/hgrep)
+ - [reliq](https://github.com/TUVIMEN/reliq)
  - [jq](https://github.com/stedolan/jq)
 
 ## Installation

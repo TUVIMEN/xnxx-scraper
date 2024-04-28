@@ -22,60 +22,41 @@ get_page() {
     {
     echo "$1" #link
     echo "$(jq -r '.dyn | "\(.id)\n\(.pagefilter)\n\(.vmdata.pub_comments)\n\(.video_title)"' <<< "$jn")" #id #pagefilter #comment_count $title
-    _tmp1="$(hgrep 'div +class="clear-infobar"; a +href +class="gold-plate" | "%(href)a\n"' <<< "$t")"
-    echo "${_tmp1##*/}" #goldplate
-    jn="$(hgrep 'script +type="application/ld+json" | "%i\n"' <<< "$t")"
+    jn="$(reliq 'script +type="application/ld+json" | "%i\n"' <<< "$t")"
     echo "$(jq -r '"\(.uploadDate)\n\(.duration)"' <<< "$jn")" #date #duration
     echo "$(sed -n '/^[[:space:]]*html5player.setThumbUrl169(/{s/^.*('\''//; s/'\''.*$//;p;q}' <<< "$t")" #thumbnail
     echo "$(sed -n '/^[[:space:]]*html5player.setThumbSlideBig(/{s/^.*('\''//; s/'\''.*$//;p;q}' <<< "$t")" #mozaique
-    _tmp1="$(hgrep 'span +class="metadata" | "%i\n"' <<< "$t")"
+    _tmp1="$(reliq 'span class="metadata" | "%i\n"' <<< "$t")"
     echo "$(sed -n '/[1-9][0-9]*p[^-]*-[^1-9][1-9][0-9,]*/{s/^- //; s/.*- //; s/ .*//; s/,//g;p}' <<< "$_tmp1")" #views
     echo "$(grep -o '[1-9][0-9]*p' <<< "$_tmp1")" #quality
-    _tmp1="$(hgrep 'span +class="rating-box value" | "%i\n"' <<< "$t")"
-    echo "${_tmp1%\%}" #rating
-    echo "$(hgrep 'a +class="vote-action-good .*"; span +class="value" | "%i\n"' <<< "$t" | tr -d ',')" #likes
-    echo "$(hgrep 'a +class="vote-action-bad .*"; span +class="value" | "%i\n"' <<< "$t")" #dlikes
-    echo "$(hgrep 'p +class="metadata-row video-description" | "%i\n"' <<< "$t" | sed ':x; s/^ *//; /^$/d; $!{N; s/\n/ /; bx}')" #desc
-    echo "$(hgrep 'div +class="metadata-row video-tags"; a +href .is-keyword | "%i\n"' <<< "$t" | sed ':x; $!{N; s/\n/,/; bx}')" #tags
-    echo "$(hgrep 'div +class="metadata-row video-tags"; a +href .is-pornstar | "%i\n"' <<< "$t" | sed ':x; $!{N; s/\n/,/; bx}')" #stars
+    reliq '
+        . div class="clear-infobar"; a href class="gold-plate" | "%(href)v\n" / sed "s#.*/##" echo "" "\n",
+        . span class="rating-box value" | "%i\n" / sed "s/%//",
+        . a .vote-action-good; span .value | "%i\n" / tr ",",
+        . a .vote-action-bad; span .value | "%i\n" / tr ",",
+        . p class="metadata-row video-description" | "%i " / echo "" "\n",
+        . div class="metadata-row video-tags"; a href .is-keyword | "%i\t" / echo "" "\n",
+        . div class="metadata-row video-tags"; a href .is-pornstar | "%i\t" / echo "" "\n"
+    ' <<< "$t"
     } | jq -RnMc '
-        input as $link |
-        input as $id |
-        input as $pagefilter |
-        input as $comment_count |
-        input as $title |
-        input as $goldplate |
-        input as $date |
-        input as $duration |
-        input as $thumbnail |
-        input as $mozaique |
-        input as $views |
-        input as $quality |
-        input as $rating |
-        input as $likes |
-        input as $dlikes |
-        input as $desc |
-        (input | split(",")) as $tags |
-        (input | split(",")) as $stars |
-
-        .["link"]=$link |
-        .["id"]=$id |
-        .["pagefilter"]=$pagefilter |
-        .["comment_count"]=$comment_count |
-        .["title"]=$title |
-        .["goldplate"]=$goldplate |
-        .["date"]=$date |
-        .["duration"]=$duration |
-        .["thumbnail"]=$thumbnail |
-        .["mozaique"]=$mozaique |
-        .["views"]=$views |
-        .["quality"]=$quality |
-        .["rating"]=$rating |
-        .["likes"]=$likes |
-        .["dlikes"]=$dlikes |
-        .["desc"]=$desc |
-        .["tags"]=$tags |
-        .["stars"]=$stars' > "$name"
+        .["link"]=input |
+        .["id"]=input |
+        .["pagefilter"]=input |
+        .["comment_count"]=input |
+        .["title"]=input |
+        .["date"]=input |
+        .["duration"]=input |
+        .["thumbnail"]=input |
+        .["mozaique"]=input |
+        .["views"]=input |
+        .["quality"]=input |
+        .["goldplate"]=input |
+        .["rating"]=input |
+        .["likes"]=input |
+        .["dlikes"]=input |
+        .["desc"]=input |
+        .["tags"]=(input | split("\t"))[:-1] |
+        .["stars"]=(input | split("\t"))[:-1]' > "$name"
     sed -n '/^<script>var video_related=/{s/^<script>var video_related=//; s/];window\..*/]/; p}' <<< "$t" | jq -r '"https://www.xnxx.com\(.[].u)"'
 }
 
