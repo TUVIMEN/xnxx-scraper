@@ -1,6 +1,6 @@
 #!/bin/bash
 
-declare -r threads='16'
+declare threads='16'
 
 ucurl() {
     curl -L -g -s --user-agent 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) QtWebEngine/5.15.2 Chrome/87.0.4280.144 Safari/537.36' -H 'Accept-Encoding: gzip, deflate' --compressed "$@"
@@ -9,84 +9,160 @@ ucurl() {
 declare -r arg0="$(basename "$0")"
 
 usage() {
-    printf '%s [dir] [URL]...\nArchive xnxx videos metadata in json to DIR\nUrls are taken from recursive spider starting from URL.\n' "$arg0"
+    printf '%s [URL]...\nArchive xnxx videos metadata in json into files named by sha256 of their urls.\n' "$arg0"
+    printf 'Options:\n  -d,\t--dir DIR\t\tchange directory to DIR\n'
+    printf '  -t,\t--threads NUM\t\tset number of processes to run at a time\n'
+    printf '  -V,\t--videos [URL]...\tpass [URL]... into recursive video spider\n'
+    printf '  -h,\t--help\t\t\tshow this message\n'
 }
 
-get_page() {
+get_comments() {
+    local -r baselink="https://www.xnxx.com/threads/$1/get-posts/new/$2"
+    echo "$baselink/0/0" >&2
+    local -r comments="$(ucurl "$baselink/0/0" -H 'X-Requested-With: XMLHttpRequest' --data-raw 'loaded_ids=&load_all=1' | jq -rcM '.posts')"
+    {
+    echo "$comments"
+    for i in $(jq -rcM '.children | to_entries[].key' <<< "$comments")
+    do
+        echo "$baselink/$i/0" >&2
+        ucurl "$baselink/$i/0" -H 'X-Requested-With: XMLHttpRequest' --data-raw 'loaded_ids=&load_all=1' | jq -rcM  --arg 'id' "$i" '.posts + {"id":$id}'
+    done
+    } | jq -s '
+        def conv_comments(nested): . | map({
+            "id",
+            "date",
+            "name",
+            "link":.url,
+            "country",
+            "message",
+            "avatar":.pic,
+            "likes":.votes.nb,
+            "dlikes":.votes.nbb,
+            "nested":nested
+        });
+
+        (.[0].posts | conv_comments(false)) as $posts |
+        [ .[0].posts[].id ] as $p_id |
+        [ .[1:][].id ] as $ch_id |
+        (.[1:] | map(.posts | conv_comments(true))) as $children |
+
+        { "comments": ($posts | map(
+            .id as $id_p |
+            . as $p |
+            ($ch_id | index($id_p)) as $id_ch |
+            if $id_ch == null
+            then
+                $p
+            else
+                $p , $children[$id_ch][]
+            end
+        ))}'
+}
+
+get_video() {
     local -r rh="$(sha256sum <<< "$1")"
     local -r name="${rh%  *}"
     [ -e "$name" ] && return
+    echo "$1" >&2
     local -r t="$(ucurl "$1")"
-    local jn="$(sed -n '/^<script>if(!window\.xv){window\.xv={};}window\.xv\.conf=/{s/^<script>if(!window\.xv){window\.xv={};}window.xv\.conf=//; s/;<\/script>$//; p;q}' <<< "$t")"
-    local _tmp1
+    local jn thumbnail mozaique t2 id comment_count is_premium
     {
-    echo "$1" #link
-    echo "$(jq -r '.dyn | "\(.id)\n\(.pagefilter)\n\(.vmdata.pub_comments)\n\(.video_title)"' <<< "$jn")" #id #pagefilter #comment_count $title
-    jn="$(reliq 'script +type="application/ld+json" | "%i\n"' <<< "$t")"
-    echo "$(jq -r '"\(.uploadDate)\n\(.duration)"' <<< "$jn")" #date #duration
-    echo "$(sed -n '/^[[:space:]]*html5player.setThumbUrl169(/{s/^.*('\''//; s/'\''.*$//;p;q}' <<< "$t")" #thumbnail
-    echo "$(sed -n '/^[[:space:]]*html5player.setThumbSlideBig(/{s/^.*('\''//; s/'\''.*$//;p;q}' <<< "$t")" #mozaique
-    _tmp1="$(reliq 'span class="metadata" | "%i\n"' <<< "$t")"
-    echo "$(sed -n '/[1-9][0-9]*p[^-]*-[^1-9][1-9][0-9,]*/{s/^- //; s/.*- //; s/ .*//; s/,//g;p}' <<< "$_tmp1")" #views
-    echo "$(grep -o '[1-9][0-9]*p' <<< "$_tmp1")" #quality
+    t2="$(sed -n '/^<script>if(!window\.xv){window\.xv={};}window\.xv\.conf=/{s/^<script>if(!window\.xv){window\.xv={};}window.xv\.conf=//; s/;<\/script>$//; p;q}' <<< "$t" | jq -rcM --arg 'link' "$1" '{
+        "link":$link,
+        "id":.dyn.id,
+        "encoded_id":.data.encoded_id_video,
+        "title":.dyn.video_title,
+        "pagefilter":.dyn.pagefilter,
+        "uploader_id":.data.uploader_id,
+        "uploader":.data.uploader,
+        "uploader_url":.data.uploader_url,
+        "is_premium":(if .data.is_premium? == true then true else false end),
+        "comment_count":.dyn.vmdata.pub_comments,
+        "tags":.data.video_tags
+    }')"
+    id="$(jq -rcM '.id' <<< "$t2")"
+    comment_count="$(jq -rcM '.comment_count' <<< "$t2")"
+    is_premium="$(jq -rcM '.is_premium' <<< "$t2")"
+    echo "$t2"
+
+    thumbnail="$(sed -n '/^[[:space:]]*html5player.setThumbUrl169(/{s/^.*('\''//; s/'\''.*$//;p;q}' <<< "$t")" #thumbnail
+    mozaique="$(sed -n '/^[[:space:]]*html5player.setThumbSlideBig(/{s/^.*('\''//; s/'\''.*$//;p;q}' <<< "$t")" #mozaique
+    reliq 'script +type="application/ld+json" | "%i\n"' <<< "$t" | jq -rcM --arg 'thumbnail' "$thumbnail" --arg 'mozaique' "$mozaique" '{
+        "date":.uploadDate,
+        "duration":(
+            (.duration | split("[A-Z]+";null)) as $d |
+            ($d[1] | tonumber)*3600+($d[2] | tonumber)*60+($d[3] | tonumber)
+        ),
+        "thumbnail":$thumbnail,
+        "mozaique":$mozaique
+    }'
     reliq '
-        . div class="clear-infobar"; a href class="gold-plate" | "%(href)v\n" / sed "s#.*/##" echo "" "\n",
-        . span class="rating-box value" | "%i\n" / sed "s/%//",
-        . a .vote-action-good; span .value | "%i\n" / tr ",",
-        . a .vote-action-bad; span .value | "%i\n" / tr ",",
-        . p class="metadata-row video-description" | "%i " / echo "" "\n",
-        . div class="metadata-row video-tags"; a href .is-keyword | "%i\t" / echo "" "\n",
-        . div class="metadata-row video-tags"; a href .is-pornstar | "%i\t" / echo "" "\n"
+        span class=metadata; {
+            .quality * l@[0] | "%i" sed "s/^- \([1-9][0-9]*p\)[^-].*/\1/p" "n",
+            .views * l@[0] | "%i" sed "s/,//g;s/- [^-]*- ([0-9,]+).*/\1/p" "nE"
+        },
+        .rating span class="rating-box value" | "%i" / sed "s/%//",
+        .likes a .vote-action-good; span .value | "%i" / tr ",",
+        .dlikes a .vote-action-bad; span .value | "%i" / tr ",",
+        .desc p class="metadata-row video-description" | "%i ",
+        .stars.a div class="metadata-row video-tags"; a href .is-pornstar | "%i\n"
     ' <<< "$t"
-    } | jq -RnMc '
-        .["link"]=input |
-        .["id"]=input |
-        .["pagefilter"]=input |
-        .["comment_count"]=input |
-        .["title"]=input |
-        .["date"]=input |
-        .["duration"]=input |
-        .["thumbnail"]=input |
-        .["mozaique"]=input |
-        .["views"]=input |
-        .["quality"]=input |
-        .["goldplate"]=input |
-        .["rating"]=input |
-        .["likes"]=input |
-        .["dlikes"]=input |
-        .["desc"]=input |
-        .["tags"]=(input | split("\t"))[:-1] |
-        .["stars"]=(input | split("\t"))[:-1]' > "$name"
-    sed -n '/^<script>var video_related=/{s/^<script>var video_related=//; s/];window\..*/]/; p}' <<< "$t" | jq -r '"https://www.xnxx.com\(.[].u)"'
+
+    if [ "$comment_count" -gt 0 -a "$is_premium" != 'true' ]
+    then
+        get_comments 'video-comments' "$id"
+    else
+        echo "{\"comments\":[]}"
+    fi
+    } | jq -srcM '.[0]+.[1]+.[2]+.[3]' > "$name"
+    [ "$#" -gt '1' ] && sed -n '/^<script>var video_related=/{s/^<script>var video_related=//; s/];window\..*/]/; p}' <<< "$t" | jq -r '"https://www.xnxx.com\(.[].u)"'
 }
 
-if [ "$#" -lt '2' ]
-then
-    usage >&2
-    exit 1
-fi
+get_videos() {
+    [ "$#" -eq 0 ] && return
+    local -r t1="$(mktemp)"
+    trap 'rm "$t1"' EXIT HUP INT QUIT TERM PWR EXIT
 
-cd "$1" || exit 1
-shift
-
-t1="$(mktemp)"
-trap 'rm "$t1"' EXIT
-while [ "$#" -gt 0 ]
-do
-    echo "$1" >&2
-    get_page "$1"
-    shift
-done > "$t1"
-
-while :
-do
-    [ -s "$t1" ] || exit
-    j="$(sort -u "$t1")"
-    for i in $j
+    while [ "$#" -gt 0 ]
     do
         [ "$(jobs | wc -l)" -gt "$threads" ] && wait %%
-        echo "$i" >&2
-        get_page "$i" &
-    done > "$t1"
+        get_video "$1" "$t1" &
+        shift
+    done
     wait
+
+    while :
+    do
+        [ -s "$t1" ] || exit
+        j="$(sort -u "$t1")"
+        for i in $j
+        do
+            [ "$(jobs | wc -l)" -gt "$threads" ] && wait %%
+            get_video "$i" "$t1" &
+        done
+        wait
+    done
+}
+
+[ "$#" -eq 0 ] && { usage >&2; exit 1; }
+
+while [ "$#" -gt 0 ]
+do
+    case "$1" in
+        -d|--dir) cd "$2" || exit; shift;;
+        -V|--videos)
+            get_videos "$@"
+            exit;;
+        -t|--threads) threads="$2"; shift;;
+        -h|--help) usage >&2; exit;;
+        -*) usage >&2; exit 1;;
+        *) break;;
+    esac
+    shift
+done
+
+while [ "$#" -gt 0 ]
+do
+    get_video "$1"
+    shift
 done

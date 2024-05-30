@@ -17,7 +17,16 @@ Here's example of a [video](video-example.json).
 
 ## Usage
 
-It works as recursive spider getting urls from every page starting from URL.
-Resulting files are named by the sha256 of their url and saved to DIR.
+Data is saved into files named by the sha256sum of their url.
 
-    xnxx-scraper DIR URL
+Download metadata of video to DIR
+
+    xnxx-scraper -d DIR URL URL URL
+
+Pass video URLS into the recursive spider using 8 threads
+
+    xnxx-scraper -t 8 -V URL URL URL
+
+Get some help
+
+    xnxx-scraper -h
